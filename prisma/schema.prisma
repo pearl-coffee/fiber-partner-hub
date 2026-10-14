@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RequestStatus {
+  NEW
+  DISTRIBUTING
+  OFFERED
+  ACCEPTED
+  PLANNED
+  CREW_DISPATCHED
+  CONSTRUCTION
+  FIBER_INSTALLATION
+  SPLICING
+  MEASUREMENT
+  AS_BUILT_DOCUMENTATION
+  ACCEPTANCE
+  CORRECTIONS_REQUIRED
+  COMPLETED
+  CLOSED
+  CANCELLED
+  OVERDUE
+}
+
+enum Priority { CRITICAL HIGH NORMAL LOW }
+enum AccreditationStatus { ACCREDITED REVIEW_REQUIRED NON_COMPLIANT }
+enum BrigadeAvailability { AVAILABLE WORKING UNAVAILABLE }
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  roleId       String
+  role         Role     @relation(fields: [roleId], references: [id])
+  regionId     String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  events       TimelineEvent[]
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  permissions Json
+  users       User[]
+}
+
+model Partner {
+  id               String              @id @default(cuid())
+  name             String
+  bin              String              @unique
+  regionId         String
+  city             String
+  phone            String
+  email            String
+  accreditation    AccreditationStatus @default(REVIEW_REQUIRED)
+  rating           Decimal             @default(0) @db.Decimal(5, 2)
+  averageDays      Int                 @default(30)
+  overdueRate      Decimal             @default(0) @db.Decimal(5, 2)
+  loadPercent      Int                 @default(0)
+  costPerKm        Decimal             @db.Decimal(12, 2)
+  location         Unsupported("geometry(Point,4326)")?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  requests         WorkRequest[]
+  brigades         Brigade[]
+  employees        Employee[]
+  resources        Resource[]
+  documents        Document[]
+  @@index([regionId, accreditation])
+  @@index([rating])
+}
+
+model WorkRequest {
+  id             String        @id @default(cuid())
+  displayId      String        @unique
+  client         String
+  objectName     String
+  address        String
+  regionId       String
+  city           String
+  district       String?
+  location       Unsupported("geometry(Point,4326)")?
+  workType       String
+  volumeKm       Decimal       @db.Decimal(8, 2)
+  fiberCount     Int
+  cableType      String?
+  spliceCount    Int           @default(0)
+  slaDays        Int
+  deadline       DateTime
+  priority       Priority      @default(NORMAL)
+  status         RequestStatus @default(NEW)
+  quotedCost     Decimal?      @db.Decimal(14, 2)
+  partnerId      String?
+  brigadeId      String?
+  contactName    String?
+  contactPhone   String?
+  requiredSpeed  String?
+  requirements   Json?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  partner        Partner?      @relation(fields: [partnerId], references: [id])
+  brigade        Brigade?      @relation(fields: [brigadeId], references: [id])
+  timeline       TimelineEvent[]
+  documents      Document[]
+  notifications  Notification[]
+  @@index([status, deadline])
+  @@index([regionId, status])
+  @@index([partnerId, status])
+  @@index([createdAt])
+}
+
+model Brigade {
+  id             String              @id @default(cuid())
+  name           String
+  partnerId      String
+  memberCount    Int
+  qualification  String[]
+  regionId       String
+  availability   BrigadeAvailability @default(AVAILABLE)
+  currentTaskId  String?
+  updatedAt      DateTime            @updatedAt
+  partner        Partner             @relation(fields: [partnerId], references: [id])
+  requests       WorkRequest[]
+  @@index([partnerId, availability])
+  @@index([regionId, availability])
+}
+
+model Employee {
+  id             String   @id @default(cuid())
+  partnerId      String
+  fullName       String
+  role           String
+  qualifications String[]
+  regionId       String
+  status         String   @default("available")
+  partner        Partner  @relation(fields: [partnerId], references: [id])
+  documents      Document[]
+  @@index([partnerId, status])
+}
+
+model Resource {
+  id           String   @id @default(cuid())
+  partnerId    String
+  category     String
+  name         String
+  serialNumber String?
+  status       String   @default("available")
+  attributes   Json?
+  partner      Partner  @relation(fields: [partnerId], references: [id])
+  documents    Document[]
+  @@index([partnerId, category, status])
+}
+
+model Document {
+  id           String   @id @default(cuid())
+  name         String
+  category     String
+  storageKey   String
+  mimeType     String
+  sizeBytes    BigInt
+  expiresAt    DateTime?
+  partnerId    String?
+  requestId    String?
+  employeeId   String?
+  resourceId   String?
+  createdAt    DateTime @default(now())
+  partner      Partner? @relation(fields: [partnerId], references: [id])
+  request      WorkRequest? @relation(fields: [requestId], references: [id])
+  employee     Employee? @relation(fields: [employeeId], references: [id])
+  resource     Resource? @relation(fields: [resourceId], references: [id])
+  @@index([expiresAt])
+  @@index([partnerId, category])
+  @@index([requestId])
+}
+
+model TimelineEvent {
+  id         String       @id @default(cuid())
+  requestId  String
+  userId     String?
+  action     String
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+  request    WorkRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user       User?        @relation(fields: [userId], references: [id])
+  @@index([requestId, createdAt])
+}
+
+model Notification {
+  id         String       @id @default(cuid())
+  requestId  String?
+  userId     String?
+  type       String
+  title      String
+  body       String
+  readAt     DateTime?
+  createdAt  DateTime     @default(now())
+  request    WorkRequest? @relation(fields: [requestId], references: [id])
+  @@index([userId, readAt, createdAt])
+}
